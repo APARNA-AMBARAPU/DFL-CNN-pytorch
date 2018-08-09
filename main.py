@@ -18,7 +18,7 @@ from torchvision import transforms as T
 from torch.utils.data.dataloader import default_collate
 import datetime
 import sys
-f_result=open('/home/pixiym/chb/DFL-CNN/result1.txt', 'w') 
+f_result=open('/home/pixiym/chb/DFL-CNN/DFL-CNN-v1/result1.txt', 'w') 
 sys.stdout=f_result
 
 
@@ -26,8 +26,8 @@ time_stamp = datetime.datetime.now()
 print("time_stamp_start       " + time_stamp.strftime('%Y.%m.%d-%H:%M:%S'))
 # Hyper parameters
 num_epochs = 1000
-batch_size = 5
-learning_rate = 0.01
+batch_size = 3
+
 
 #dataset
 transform = T.Compose([
@@ -162,16 +162,17 @@ class Side_Branch_net(nn.Module):
 Side_Branch_net = Side_Branch_net().cuda()
 #optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer1 = torch.optim.SGD(G_Stream_net.parameters(), lr=learning_rate,weight_decay=0.000005,momentum=0.9)
-optimizer2 = torch.optim.SGD(P_Stream_net.parameters(), lr=learning_rate,weight_decay=0.000005,momentum=0.9)
-optimizer3 = torch.optim.SGD(Side_Branch_net.parameters(), lr=learning_rate,weight_decay=0.000005,momentum=0.9)
+optimizer1 = torch.optim.SGD(G_Stream_net.parameters(), lr=0.1,weight_decay=0.000005,momentum=0.9)
+optimizer2 = torch.optim.SGD(P_Stream_net.parameters(), lr=0.1,weight_decay=0.000005,momentum=0.9)
+optimizer3 = torch.optim.SGD(Side_Branch_net.parameters(), lr=0.1,weight_decay=0.000005,momentum=0.9)
 
 
 # Train the model
 total_step = len(train_loader)
 for epoch in range(num_epochs):
     for i, (images, labels) in enumerate(train_loader):
-        images = images.cuda()        
+        images = images.cuda()
+        images = Variable(images)  
         labels = labels.long().cuda()      
         # Forward pass
         outputs1 = G_Stream_net(images)
@@ -180,24 +181,33 @@ for epoch in range(num_epochs):
         outputs2 = P_Stream_net(images)
         outputs3 = Side_Branch_net(images)
         outputs3 = outputs3.view(N1,N2)
-        outputs = 0.6*outputs1 + 0.2*outputs2 + 0.2*outputs3
-        loss = criterion(outputs, labels)
+        loss1 = criterion(outputs1, labels)
+        loss2 = criterion(outputs2, labels)
+        loss3 = criterion(outputs3, labels)
+        loss = 0.6*loss1 + 0.3*loss2 + 0.1*loss3
         # Backward and optimize
         optimizer1.zero_grad()
         optimizer2.zero_grad()
         optimizer3.zero_grad()
-        loss.backward()
+        loss1.backward(retain_graph=True)
+        loss2.backward(retain_graph=True)
+        loss3.backward(retain_graph=True)
+        loss.backward(retain_graph=True)
         optimizer1.step()
         optimizer2.step()
         optimizer3.step()
   
         if (i+1) % 100 == 0:
-            print ('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}' 
-                   .format(epoch+1, num_epochs, i+1, total_step, loss.item()))
+            print ('Epoch [{}/{}], Step [{}/{}],Loss1: {:.4f},Loss2: {:.4f},Loss3: {:.4f}, Loss: {:.4f}' 
+                   .format(epoch+1, num_epochs, i+1, total_step,loss1.item(),loss2.item(),loss3.item() ,loss.item()))
 
 
 
-    # Test the model
+
+   
+  
+
+      # Test the model
     G_Stream_net.eval()  # eval mode (batchnorm uses moving mean/variance instead of mini-batch mean/variance)
     P_Stream_net.eval()
     Side_Branch_net.eval()
@@ -206,6 +216,7 @@ for epoch in range(num_epochs):
         total = 0
         for images, labels in test_loader:
             images = images.cuda()
+            images = Variable(images)
             labels = labels.long().cuda()
             outputs1 = G_Stream_net(images)
             N1 =  output1.size()[0]
@@ -213,15 +224,12 @@ for epoch in range(num_epochs):
             outputs2 = P_Stream_net(images)
             outputs3 = Side_Branch_net(images)
             outputs3 = outputs3.view(N1,N2)
-            outputs = 0.6*outputs1 + 0.2*outputs2 + 0.2*outputs3
-            _, predicted = torch.max(outputs.data, 1)
+            outputs = 0.6*outputs1 + 0.3*outputs2 + 0.1*outputs3 
+            _, predicted1 = torch.max(outputs1.data, 1)
+            _, predicted2 = torch.max(outputs.data, 1)
             total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-        print('Test Accuracy of the model on the  test images: {} %'.format(100 * correct / total))
-   # Save the model 
-  #  torch.save(ALLNET.state_dict(), 'model/ft_all.pkl')
-
-
-
+            correct1 += (predicted1 == labels).sum().item()
+            correct2 += (predicted2 == labels).sum().item()
+        print('Test Accuracy of the model on the  test images: {} %'.format(100 * correct1 / total))
+        print('Test Accuracy of the model on the  test images: {} %'.format(100 * correct2 / total))
 
